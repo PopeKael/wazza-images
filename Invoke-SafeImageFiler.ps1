@@ -51,10 +51,25 @@ function Get-ImageDate([IO.FileInfo]$File) {
     return $File.CreationTime.ToString('yyyy-MM-dd')
 }
 function Read-State {
-    if (Test-Path -LiteralPath $script:StatePath) { try { return @(Get-Content -Raw -LiteralPath $script:StatePath | ConvertFrom-Json) } catch { } }
-    return @()
+    $items = [Collections.Generic.List[object]]::new()
+    if (-not (Test-Path -LiteralPath $script:StatePath)) { return @() }
+    try {
+        $root = Get-Content -Raw -LiteralPath $script:StatePath | ConvertFrom-Json
+        $walk = {
+            param($Node)
+            if ($null -eq $Node) { return }
+            $hashProperty = $Node.PSObject.Properties['Hash']
+            if ($null -ne $hashProperty -and -not [string]::IsNullOrWhiteSpace([string]$Node.Hash)) { $items.Add($Node); return }
+            if ($Node -is [Collections.IEnumerable] -and $Node -isnot [string]) { foreach ($child in $Node) { & $walk $child }; return }
+            foreach ($property in $Node.PSObject.Properties) {
+                if ($property.Name -eq 'value' -or $property.Name -eq 'Items') { & $walk $property.Value }
+            }
+        }
+        & $walk $root
+    } catch { return @() }
+    return $items.ToArray()
 }
-function Save-State($State) { $State | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:StatePath -Encoding UTF8 }
+function Save-State($State) { @($State | Where-Object { $_ -and $_.Hash }) | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:StatePath -Encoding UTF8 }
 function Invoke-Ollama([hashtable]$Body) {
     Invoke-RestMethod -Uri ($script:Ollama + '/api/generate') -Method Post -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSec
 }
@@ -114,7 +129,7 @@ function Move-AndVerify([string]$Source,[string]$Destination,[string]$ExpectedHa
 
 Assert-InRoot $script:Root | Out-Null
 Ensure-Model
-$state = @(Read-State); $stateByHash = @{}; foreach ($x in $state) { $stateByHash[$x.Hash] = $x }
+$state = @(Read-State); $stateByHash = @{}; foreach ($x in $state) { if ($x -and $x.Hash) { $stateByHash[[string]$x.Hash] = $x } }
 if ($RetryUndecided) {
     $files = @(Get-ChildItem -LiteralPath $script:UndecidedDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $script:ImageCandidates -contains $_.Extension.ToLowerInvariant() })
 } else {

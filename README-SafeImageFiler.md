@@ -56,6 +56,8 @@ PowerShell -ExecutionPolicy Bypass -File .\Invoke-SafeImageFiler.ps1 -Apply -Ret
 
 On retry, successful images move to `Done`; failures remain in `Undecided`.
 
+Moves are verified by SHA-256. The tool tolerates a cloud-sync provider completing a move while PowerShell reports that the old source path has disappeared, and retries other transient move errors up to three times. It never overwrites an existing destination.
+
 ## Verification
 
 Check `_image-filer-report.md` and `_image-filer-report.csv`. Confirm image counts and open a few filed images. The script excludes `Undecided` on later scans so uncertain items are not repeatedly reclassified accidentally.

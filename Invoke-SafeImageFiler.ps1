@@ -91,6 +91,28 @@ function Append-Rollback($Row) {
     if (-not (Test-Path -LiteralPath $script:RollbackPath)) { 'OriginalPath,NewPath,Timestamp,Confidence,Description,Result' | Set-Content -LiteralPath $script:RollbackPath -Encoding UTF8 }
     $Row | Export-Csv -LiteralPath $script:RollbackPath -Append -NoTypeInformation -Encoding UTF8
 }
+function Move-AndVerify([string]$Source,[string]$Destination,[string]$ExpectedHash) {
+    $lastError = $null
+    for ($attempt=1; $attempt -le 3; $attempt++) {
+        try {
+            Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
+            $lastError = $null
+            break
+        } catch {
+            $lastError = $_
+            # A cloud-sync provider can complete the move and still report a
+            # stale source-path error. Verification below distinguishes that
+            # case from a genuine failed move.
+            if ($attempt -lt 3) { Start-Sleep -Milliseconds 750 }
+        }
+    }
+    if ((Test-Path -LiteralPath $Destination) -and -not (Test-Path -LiteralPath $Source)) {
+        $actualHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
+        if ($actualHash -eq $ExpectedHash) { return }
+    }
+    if ($lastError) { throw $lastError }
+    throw "Move verification failed: destination hash or source state was unexpected."
+}
 
 Assert-InRoot $script:Root | Out-Null
 Ensure-Model
@@ -118,7 +140,7 @@ foreach ($file in $files) {
         $date = Get-ImageDate $file; $base = "$date-$(Get-SafeLeaf $analysis.short_name)"; $ext=$file.Extension.ToLowerInvariant()
         if ($confidence -lt 0.70) { $targetDir=$script:UndecidedDir; $counts.undecided++ } else { $targetDir=$script:DoneDir; $counts.filed++; }
         $newPath=New-UniquePath $targetDir $base $ext
-        if ($Apply) { Show-Stage "MOVE: $original" Yellow; Show-Stage "      -> $newPath" Yellow; Move-Item -LiteralPath $original -Destination $newPath -ErrorAction Stop; $result=if ($confidence -lt 0.70){'undecided'}else{'filed'}; if ($newPath -ne $original){$counts.renamed++}; Append-Rollback ([pscustomobject]@{OriginalPath=$original;NewPath=$newPath;Timestamp=(Get-Date).ToString('o');Confidence=$confidence;Description=$description;Result=$result}); $state += [pscustomobject]@{Hash=$hash;OriginalPath=$original;NewPath=$newPath;Confidence=$confidence;Description=$description;ProcessedAt=(Get-Date).ToString('o');Result=$result}; Show-Stage "DONE: $result" Green }
+        if ($Apply) { Show-Stage "MOVE: $original" Yellow; Show-Stage "      -> $newPath" Yellow; Move-AndVerify $original $newPath $hash; $result=if ($confidence -lt 0.70){'undecided'}else{'filed'}; if ($newPath -ne $original){$counts.renamed++}; Append-Rollback ([pscustomobject]@{OriginalPath=$original;NewPath=$newPath;Timestamp=(Get-Date).ToString('o');Confidence=$confidence;Description=$description;Result=$result}); $state += [pscustomobject]@{Hash=$hash;OriginalPath=$original;NewPath=$newPath;Confidence=$confidence;Description=$description;ProcessedAt=(Get-Date).ToString('o');Result=$result}; Show-Stage "DONE: $result (verified)" Green }
         else { $result='dry-run'; Show-Stage "PLAN ONLY: would move to" Magenta; Show-Stage "            $newPath" Magenta }
     } catch {
         $counts.failures++; $description=$_.Exception.Message; $result='failure'; Show-Stage "ERROR: $description" Red

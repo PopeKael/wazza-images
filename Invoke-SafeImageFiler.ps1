@@ -91,27 +91,25 @@ function Append-Rollback($Row) {
     if (-not (Test-Path -LiteralPath $script:RollbackPath)) { 'OriginalPath,NewPath,Timestamp,Confidence,Description,Result' | Set-Content -LiteralPath $script:RollbackPath -Encoding UTF8 }
     $Row | Export-Csv -LiteralPath $script:RollbackPath -Append -NoTypeInformation -Encoding UTF8
 }
+function Test-MoveVerified([string]$Source,[string]$Destination,[string]$ExpectedHash) {
+    if (-not (Test-Path -LiteralPath $Destination) -or (Test-Path -LiteralPath $Source)) { return $false }
+    try { return ((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash -eq $ExpectedHash) } catch { return $false }
+}
 function Move-AndVerify([string]$Source,[string]$Destination,[string]$ExpectedHash) {
     $lastError = $null
     for ($attempt=1; $attempt -le 3; $attempt++) {
-        try {
-            Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
-            $lastError = $null
-            break
-        } catch {
-            $lastError = $_
-            # A cloud-sync provider can complete the move and still report a
-            # stale source-path error. Verification below distinguishes that
-            # case from a genuine failed move.
-            if ($attempt -lt 3) { Start-Sleep -Milliseconds 750 }
+        try { Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop } catch { $lastError = $_ }
+        # Cloud-backed providers can update source and destination visibility
+        # asynchronously. Wait up to ten seconds for a verified destination.
+        for ($wait=0; $wait -le 10; $wait++) {
+            if (Test-MoveVerified $Source $Destination $ExpectedHash) { return }
+            if ($wait -lt 10) { Start-Sleep -Seconds 1 }
         }
-    }
-    if ((Test-Path -LiteralPath $Destination) -and -not (Test-Path -LiteralPath $Source)) {
-        $actualHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
-        if ($actualHash -eq $ExpectedHash) { return }
+        if (-not (Test-Path -LiteralPath $Source)) { break }
+        if ($attempt -lt 3) { Start-Sleep -Seconds 1 }
     }
     if ($lastError) { throw $lastError }
-    throw "Move verification failed: destination hash or source state was unexpected."
+    throw "Move verification failed: destination did not appear with the expected SHA-256 or source state was unexpected."
 }
 
 Assert-InRoot $script:Root | Out-Null

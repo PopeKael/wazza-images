@@ -106,26 +106,6 @@ function Append-Rollback($Row) {
     if (-not (Test-Path -LiteralPath $script:RollbackPath)) { 'OriginalPath,NewPath,Timestamp,Confidence,Description,Result' | Set-Content -LiteralPath $script:RollbackPath -Encoding UTF8 }
     $Row | Export-Csv -LiteralPath $script:RollbackPath -Append -NoTypeInformation -Encoding UTF8
 }
-function Test-MoveVerified([string]$Source,[string]$Destination,[string]$ExpectedHash) {
-    if (-not (Test-Path -LiteralPath $Destination) -or (Test-Path -LiteralPath $Source)) { return $false }
-    try { return ((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash -eq $ExpectedHash) } catch { return $false }
-}
-function Move-AndVerify([string]$Source,[string]$Destination,[string]$ExpectedHash) {
-    $lastError = $null
-    for ($attempt=1; $attempt -le 3; $attempt++) {
-        try { Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop } catch { $lastError = $_ }
-        # Cloud-backed providers can update source and destination visibility
-        # asynchronously. Wait up to ten seconds for a verified destination.
-        for ($wait=0; $wait -le 10; $wait++) {
-            if (Test-MoveVerified $Source $Destination $ExpectedHash) { return }
-            if ($wait -lt 10) { Start-Sleep -Seconds 1 }
-        }
-        if (-not (Test-Path -LiteralPath $Source)) { break }
-        if ($attempt -lt 3) { Start-Sleep -Seconds 1 }
-    }
-    if ($lastError) { throw $lastError }
-    throw "Move verification failed: destination did not appear with the expected SHA-256 or source state was unexpected."
-}
 
 Assert-InRoot $script:Root | Out-Null
 Ensure-Model
@@ -151,10 +131,11 @@ foreach ($file in $files) {
         $analysis = Analyze $file; $confidence=[double]$analysis.confidence; $description=[string]$analysis.description
         Show-Stage ("RESPONSE: confidence={0:N2} | {1}" -f $confidence,$description) Green
         $date = Get-ImageDate $file; $base = "$date-$(Get-SafeLeaf $analysis.short_name)"; $ext=$file.Extension.ToLowerInvariant()
-        if ($confidence -lt 0.70) { $targetDir=$script:UndecidedDir; $counts.undecided++ } else { $targetDir=$script:DoneDir; $counts.filed++; }
+        $isUndecided = $confidence -lt 0.70
+        if ($isUndecided) { $targetDir=$script:UndecidedDir } else { $targetDir=$script:DoneDir }
         $newPath=New-UniquePath $targetDir $base $ext
-        if ($Apply) { Show-Stage "MOVE: $original" Yellow; Show-Stage "      -> $newPath" Yellow; Move-AndVerify $original $newPath $hash; $result=if ($confidence -lt 0.70){'undecided'}else{'filed'}; if ($newPath -ne $original){$counts.renamed++}; Append-Rollback ([pscustomobject]@{OriginalPath=$original;NewPath=$newPath;Timestamp=(Get-Date).ToString('o');Confidence=$confidence;Description=$description;Result=$result}); $state += [pscustomobject]@{Hash=$hash;OriginalPath=$original;NewPath=$newPath;Confidence=$confidence;Description=$description;ProcessedAt=(Get-Date).ToString('o');Result=$result}; Show-Stage "DONE: $result (verified)" Green }
-        else { $result='dry-run'; Show-Stage "PLAN ONLY: would move to" Magenta; Show-Stage "            $newPath" Magenta }
+        if ($Apply) { Show-Stage "MOVE: $original" Yellow; Show-Stage "      -> $newPath" Yellow; Move-Item -LiteralPath $original -Destination $newPath -ErrorAction Stop; $result=if ($isUndecided){'undecided'}else{'filed'}; if ($isUndecided){$counts.undecided++}else{$counts.filed++}; if ($newPath -ne $original){$counts.renamed++}; Append-Rollback ([pscustomobject]@{OriginalPath=$original;NewPath=$newPath;Timestamp=(Get-Date).ToString('o');Confidence=$confidence;Description=$description;Result=$result}); $state += [pscustomobject]@{Hash=$hash;OriginalPath=$original;NewPath=$newPath;Confidence=$confidence;Description=$description;ProcessedAt=(Get-Date).ToString('o');Result=$result}; Show-Stage "DONE: $result" Green }
+        else { $result='dry-run'; if ($isUndecided){$counts.undecided++}else{$counts.filed++}; Show-Stage "PLAN ONLY: would move to" Magenta; Show-Stage "            $newPath" Magenta }
     } catch {
         $counts.failures++; $description=$_.Exception.Message; $result='failure'; Show-Stage "ERROR: $description" Red
         if ($Apply -and $original -and (Test-Path -LiteralPath $original) -and $original.StartsWith($script:Root + '\', [StringComparison]::OrdinalIgnoreCase) -and $original -notlike "$script:UndecidedDir\*") {

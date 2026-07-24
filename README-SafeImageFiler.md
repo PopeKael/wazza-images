@@ -56,7 +56,7 @@ PowerShell -ExecutionPolicy Bypass -File .\Invoke-SafeImageFiler.ps1 -Apply -Ret
 
 On retry, successful images move to `Done`; failures remain in `Undecided`.
 
-Moves are verified by SHA-256. The tool waits for delayed destination visibility from cloud-backed providers, tolerates a provider completing a move while PowerShell reports that the old source path has disappeared, and retries other transient move errors up to three times. It never overwrites an existing destination.
+Moves use a straightforward non-overwriting PowerShell `Move-Item` operation. The tool creates a unique destination name before moving and records successful moves in the rollback log.
 
 ## Verification
 

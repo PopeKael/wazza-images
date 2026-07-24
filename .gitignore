@@ -1,0 +1,39 @@
+# Local image corpus and generated runtime data
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.webp
+*.jfif
+*.heic
+*.heif
+*.avif
+*.ico
+*.raw
+*.cr2
+*.nef
+*.orf
+*.dng
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.psd
+Done/
+Undecided/
+Test/
+
+# Generated reports, state, and rollback data
+_image-filer-report.md
+_image-filer-report.csv
+_image-filer-state.json
+_image-filer-rollback.csv
+
+# PowerShell/editor noise
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db

@@ -28,3 +28,11 @@ PowerShell -ExecutionPolicy Bypass -File .\Invoke-SafeImageFiler.ps1 -Apply -Ret
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Help and community
+
+Please [open an Issue](https://github.com/PopeKael/wazza-images/issues) to report a bug or suggest a safer or more useful image-filing workflow. Include your Windows/PowerShell version, local vision model and steps to reproduce, but do not upload private photographs, filenames containing personal details or local credentials.
+
+Part of [Garage Alchemy](https://garage.dia.net.au/): useful tools, practical experiments, and the lessons learned while building them.
+
+**Support is optional:** [Buy Me a Coffee](https://buymeacoffee.com/warrengerdes) · [Join the Tribe on Patreon](https://www.patreon.com/c/chanyawazza). No payment is required to use or contribute to this project under its licence.
